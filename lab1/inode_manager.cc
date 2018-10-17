@@ -244,7 +244,6 @@ inode_manager::read_file(uint32_t inum, char **buf_out, int *size)
    
    int bNum = (inode->size-1)/BLOCK_SIZE + 1; //blockNum;
 
- 
    char init_buf_out[bNum*BLOCK_SIZE];
 
    *buf_out = (char*)malloc(inode->size);
@@ -262,22 +261,24 @@ inode_manager::read_file(uint32_t inum, char **buf_out, int *size)
         blockid_t blockId = inode->blocks[i];
        // printf("blockId :%d\n", blockId);
         bm->read_block(blockId, init_buf_out+i*BLOCK_SIZE);
+        if(i==0) printf("test read[0] blockId :%s\n", init_buf_out);
      }
 
    }
    else{ //in_blocks
      for(int i = 0;i<NDIRECT;i++){
-        blockid_t blockId =  inode->blocks[i];
+        blockid_t blockId = inode->blocks[i];
         bm->read_block(blockId,init_buf_out+i*BLOCK_SIZE);
+        if(i==0) printf("test read[0] blockId :%s\n", init_buf_out);
      }
-   //  printf("test read_file ---- 8 ---- \n");
+     //  printf("test read_file ---- 8 ---- \n");
      
      bm->read_block(inode->blocks[NDIRECT],buf);
      
-     memcpy(in_blocks,buf,(sizeof(blockid_t))*(bNum-NDIRECT));//copy blockid
+     memcpy(in_blocks,buf,sizeof(in_blocks));//copy blockid
      
      for(int j = NDIRECT;j<bNum;j++){
-   //   printf("test read_file ---- 9 ---- \n");
+     //   printf("test read_file ---- 9 ---- \n");
         blockid_t blockId =  in_blocks[j-NDIRECT];
         bm->read_block(blockId,init_buf_out+j*BLOCK_SIZE);
      }
@@ -288,7 +289,7 @@ inode_manager::read_file(uint32_t inum, char **buf_out, int *size)
 
    memcpy(*buf_out,init_buf_out,inode->size);
    
-  //  printf("\tbuf_out %s\n", *buf_out);
+    printf("\tbuf_out %s\n", *buf_out);
 
    *size = inode->size;
    free(inode);
@@ -310,79 +311,125 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
   // printf("begin write_file\n");
    char blockbuf[BLOCK_SIZE];
 
-   if( (size <= 0 )|| size > (MAXFILE*BLOCK_SIZE)){printf("finish write_file\n");return;}//too big or too small
-   inode_t *inode = get_inode(inum);
+   if((size < 0 )|| size > (MAXFILE*BLOCK_SIZE)){printf("finish write_file--too big or too small \n");return;}//too big or too small
    
-   if(inode==NULL){printf("finish write_file\n");return;}//bad inode
+   inode_t *inode = get_inode(inum);//
+   
+   if(inode==NULL){printf("bad inode\n");return;}//bad inode
    
 
    blockid_t old_in_blocks[NINDIRECT];
    blockid_t new_in_blocks[NINDIRECT];
 
-   int old_block_num = (inode->size-1)/BLOCK_SIZE+1;
+   int old_block_num = (inode->size+BLOCK_SIZE-1)/BLOCK_SIZE;
    int new_block_num = (size-1)/BLOCK_SIZE+1;
+
  //  printf("\tnew_block_num  %d\n", new_block_num);
   // memcpy(old_blocks,inode->blocks,NDIRECT*sizeof(blockid_t));
 
    if(old_block_num > NDIRECT){ 
      bm->read_block(inode->blocks[NDIRECT],blockbuf);//indirect block
-     memcpy(old_in_blocks,blockbuf,BLOCK_SIZE);
+     memcpy(old_in_blocks,blockbuf,sizeof(old_in_blocks));
    }
    
-   if(new_block_num < old_block_num){//no change to blocks, just write and free block
-      for(int i = 0;i<old_block_num;i++){
-        if(i < new_block_num){
-          bm->write_block(inode->blocks[i],buf+BLOCK_SIZE*i);
+   if(new_block_num <= old_block_num){//no change to blocks, just write and free block
+      if(old_block_num<=NDIRECT){
+        for(int i = 0;i<old_block_num;i++){//new<old<ndirect
+          if(i < new_block_num){
+            bm->write_block(inode->blocks[i],buf+BLOCK_SIZE*i);
+          }
+          else{
+          // bm->free_block(old_in_blocks[i-NDIRECT]);
+          bm->free_block(inode->blocks[i]);
+          }
         }
-        else{
-         // bm->free_block(old_in_blocks[i-NDIRECT]);
-         bm->free_block(inode->blocks[i]);
+      }
+      else if(new_block_num<=NDIRECT && NDIRECT<old_block_num){
+        for(int i = 0;i<old_block_num;i++){//new<old<ndirect
+          if(i < new_block_num){
+            bm->write_block(inode->blocks[i],buf+BLOCK_SIZE*i);
+          }
+          else if(i>=new_block_num && i<NDIRECT){
+          // bm->free_block(old_in_blocks[i-NDIRECT]);
+            bm->free_block(inode->blocks[i]);
+          }
+          else{//i>=NDIRECT && i<old_block_num
+            bm->free_block(old_in_blocks[i-NDIRECT]);
+          }
+        }
+      }
+      else{//NDIRECT<new<old
+        for(int i = 0;i<old_block_num;i++){
+          if(i < NDIRECT){
+            bm->write_block(inode->blocks[i],buf+BLOCK_SIZE*i);
+          }
+          else if(i>=NDIRECT&&i<new_block_num){
+            new_in_blocks[i-NDIRECT]=old_in_blocks[i-NDIRECT];
+            bm->write_block(old_in_blocks[i-NDIRECT],buf+BLOCK_SIZE*i);
+          }
+          else{
+            bm->free_block(old_in_blocks[i-NDIRECT]);
+          }
         }
       }
    }
-   else {//new_block num >= old_block_num;write, alloc and change the blocks
-    if(new_block_num<=NDIRECT){// write and alloc change blocks  
-      for(int i = 0;i<new_block_num;i++){//old write, new alloc 
-        if(i<old_block_num-1){
-          bm->write_block(inode->blocks[i],buf+i*BLOCK_SIZE);
-        }
-        else{
-          blockid_t new_block_id = bm->alloc_block();
-          inode->blocks[i] = new_block_id;
-          bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
-        }
-      }
-    }
-    else{//new_block_num>NDIRECT,
-      for(int i = 0;i<NDIRECT;i++){//old write, new alloc 
-        if(i<old_block_num){
-          bm->write_block(inode->blocks[i],buf+i*BLOCK_SIZE);
-        }
-        else{
-          blockid_t new_block_id = bm->alloc_block();
-          inode->blocks[i] = new_block_id;
-          bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
-        }
-      }
-      
-      for(int i=NDIRECT;i<new_block_num; i++){
-        if(i<old_block_num){
-          bm->write_block(inode->blocks[i],buf+i*BLOCK_SIZE);
-        }
-        else{
-          blockid_t new_block_id = bm->alloc_block();
-          new_in_blocks[i-NDIRECT] = new_block_id;
-          bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
-        }
-      }
 
+   else {//new_block num >= old_block_num;write, alloc and change the blocks
+      if(new_block_num <= NDIRECT){// write and alloc change blocks  
+        for(int i = 0;i<new_block_num;i++){//old write, new alloc 
+          if(i<old_block_num){
+            bm->write_block(inode->blocks[i],buf+i*BLOCK_SIZE);
+          }
+          else{
+            blockid_t new_block_id = bm->alloc_block();
+            inode->blocks[i] = new_block_id;
+            bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
+          }
+        }
+      }
+      else if(old_block_num<=NDIRECT && NDIRECT<new_block_num){//new_block_num>NDIRECT,
+        for(int i = 0;i<new_block_num;i++){//old write, new alloc 
+          if(i<old_block_num){
+            bm->write_block(inode->blocks[i],buf+i*BLOCK_SIZE);
+          }
+          else if(old_block_num<=i && i<NDIRECT){
+            blockid_t new_block_id = bm->alloc_block();
+            inode->blocks[i] = new_block_id;
+            bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
+          }
+          else{
+            blockid_t new_block_id = bm->alloc_block();
+            new_in_blocks[i-NDIRECT] = new_block_id;
+            bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
+          }
+        }
+      }
+      else{//NDIRECT<=old_block_num<new_blocknum
+        for(int i=0;i<new_block_num; i++){
+          if(i < NDIRECT){
+            bm->write_block(inode->blocks[i],buf+i*BLOCK_SIZE);
+          }
+          else if(i<old_block_num){
+            new_in_blocks[i-NDIRECT] = old_in_blocks[i-NDIRECT];
+            bm->write_block(old_in_blocks[i-NDIRECT],buf+i*BLOCK_SIZE);
+          }
+          else{// NDREICT<old_block_num<=i <new_block_num
+            blockid_t new_block_id = bm->alloc_block();
+            new_in_blocks[i-NDIRECT] = new_block_id;
+            bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
+          }
+        }
+      }  
+    
+     
+  }
+   if(new_block_num > NDIRECT){
       blockid_t in_blockId = bm->alloc_block();
       inode->blocks[NDIRECT] = in_blockId;
       memcpy(blockbuf,new_in_blocks,BLOCK_SIZE);
-      bm->write_block(in_blockId,blockbuf);
-    }
+      bm->write_block(in_blockId,blockbuf); 
    }
-   
+
    inode->size = size;
    put_inode(inum,inode);
    

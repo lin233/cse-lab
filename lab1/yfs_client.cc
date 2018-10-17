@@ -378,7 +378,7 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
 {
     int r = OK;
     printf("begin write\n");
-    /*
+     /*
      * your code goes here.
      * note: write using ec->put().
      * when off > length of original file, fill the holes with '\0'.
@@ -391,7 +391,6 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
      std::string buf = std::string(data);
      int len_content = content.length();
      
- 
 
      printf("old_filesize :%d\n",len_content);
      printf("off :%d\n",off);
@@ -399,7 +398,7 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
      printf("old_file_content :%s\n",content.c_str());
      printf("Add content :%s\n",data);
      if(off >= len_content){
-        printf("append writing\n");
+         printf("append writing\n");
          content.resize(off,'\0');
          content = content + buf.substr(0,size);
          printf("already_new_filesize :%d\n",content.length());
@@ -409,6 +408,12 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
          bytes_written = off+size-len_content;
          
      }
+     /*
+     else if(off+size< len_content){
+         content = content.substr(0,off)+buf.substr(0,size)+content.substr(off+size);
+         r=ec->put(ino,content);
+         bytes_written = size;
+     }*/
 
      else{
          content = content.substr(0,off)+buf.substr(0,size);
