@@ -131,22 +131,24 @@ yfs_client::setattr(inum ino, size_t size)
      * note: get the content of inode ino, and modify its content
      * according to the size (<, =, or >) content length.
      */
+     if(!isfile(ino)||size<0)return IOERR;
+
      std::string content;
      ec->get(ino,content);
+
      int old_size = content.size();
      if(old_size==size)return r;
+     
      if(old_size > size){
          content = content.substr(0,size);
          ec->put(ino,content);
-        
      }
      else{
-        content += std::string(size - old_size, '\0');
+        content.resize(size,'\0');
         ec->put(ino,content);
      }
 
      printf("finish setattr\n");
-
 
     return r;
 }
@@ -271,8 +273,9 @@ yfs_client::lookup(inum parent, const char *name, bool &found, inum &ino_out)
          }
          itor++;
      } 
+
      printf("finish lookup\n");
-    return r;
+     return r;
 }
 
 int
@@ -408,12 +411,12 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
          bytes_written = off+size-len_content;
          
      }
-     /*
+     
      else if(off+size< len_content){
          content = content.substr(0,off)+buf.substr(0,size)+content.substr(off+size);
          r=ec->put(ino,content);
          bytes_written = size;
-     }*/
+     }
 
      else{
          content = content.substr(0,off)+buf.substr(0,size);
@@ -423,7 +426,6 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
          
      }
 
-    
      r=ec->get(ino,buf);
      printf("finish write\n");
      printf("after write content2 :%s\n",buf.c_str());

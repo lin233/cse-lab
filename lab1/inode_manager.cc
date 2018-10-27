@@ -143,7 +143,6 @@ inode_manager::alloc_inode(uint32_t type)
      inode = get_inode(inum);
    }
    //找到能够用的inode
-
   
    bm->read_block(IBLOCK(inum, bm->sb.nblocks), buf);//拿到那个inode对应的block
    ino_disk = (struct inode*)buf + inum%IPB;//inode
@@ -241,57 +240,69 @@ inode_manager::read_file(uint32_t inum, char **buf_out, int *size)
    //printf("begin read_file\n");
 
    inode_t *inode = get_inode(inum);//get inode 
-   
-   int bNum = (inode->size-1)/BLOCK_SIZE + 1; //blockNum;
-
-   char init_buf_out[bNum*BLOCK_SIZE];
-
+   *size = inode->size;
    *buf_out = (char*)malloc(inode->size);
+
+   int complete_block_num = inode->size/BLOCK_SIZE; //blockNum;
+   int last_block_bytes = inode->size%BLOCK_SIZE;
+  // int last_block_num;
+
+   if(last_block_bytes!=0){
+      complete_block_num ++;
+   }
+   else{
+     last_block_bytes=BLOCK_SIZE;
+   }
+
+   
+  // char init_buf_out[(bNum*BLOCK_SIZE)];
 
    char buf[BLOCK_SIZE];
 
-   if(bNum > MAXFILE){
+   if(complete_block_num > MAXFILE){
      return ;//too large file
    }
 
    blockid_t in_blocks[NINDIRECT];
   
-   if(bNum <= NDIRECT){//only use NDIRECT
-     for(int i = 0;i < bNum;i++){
-        blockid_t blockId = inode->blocks[i];
-       // printf("blockId :%d\n", blockId);
-        bm->read_block(blockId, init_buf_out+i*BLOCK_SIZE);
-        if(i==0) printf("test read[0] blockId :%s\n", init_buf_out);
+   if(complete_block_num <= NDIRECT){//only use NDIRECT
+     for(int i = 0;i < complete_block_num;i++){
+        if(i!=complete_block_num-1){
+          blockid_t blockId = inode->blocks[i];
+         // printf("blockId :%d\n", blockId);
+          bm->read_block(blockId, *buf_out+i*BLOCK_SIZE);
+         // if(i==0) printf("test read[0] blockId :%s\n", init_buf_out);
+        }
+        else{
+          bm->read_block(inode->blocks[i], buf);
+          memcpy(*buf_out + i * BLOCK_SIZE, buf, last_block_bytes);
+        }
      }
-
    }
    else{ //in_blocks
-     for(int i = 0;i<NDIRECT;i++){
-        blockid_t blockId = inode->blocks[i];
-        bm->read_block(blockId,init_buf_out+i*BLOCK_SIZE);
-        if(i==0) printf("test read[0] blockId :%s\n", init_buf_out);
-     }
-     //  printf("test read_file ---- 8 ---- \n");
-     
      bm->read_block(inode->blocks[NDIRECT],buf);
-     
      memcpy(in_blocks,buf,sizeof(in_blocks));//copy blockid
-     
-     for(int j = NDIRECT;j<bNum;j++){
-     //   printf("test read_file ---- 9 ---- \n");
-        blockid_t blockId =  in_blocks[j-NDIRECT];
-        bm->read_block(blockId,init_buf_out+j*BLOCK_SIZE);
-     }
-
+     for(int i = 0;i<complete_block_num;i++){
+       if(i < NDIRECT){
+          blockid_t blockId = inode->blocks[i];
+          bm->read_block(blockId,*buf_out+i*BLOCK_SIZE);
+         //  if(i==0) printf("test read[0] blockId :%s\n", init_buf_out);
+        }
+        else if(i<complete_block_num-1){
+          //blockid_t blockId = in_blocks[i-NDIRECT];
+          bm->read_block(in_blocks[i-NDIRECT],*buf_out+i*BLOCK_SIZE);
+        }
+        else{
+          bm->read_block(in_blocks[i-NDIRECT], buf);
+          memcpy(*buf_out + i * BLOCK_SIZE, buf, last_block_bytes);
+        }
+      }
+     //  printf("test read_file ---- 8 ---- \n");
    }
-   
-   printf("\tinit_buf_out %s\n", init_buf_out);
-
-   memcpy(*buf_out,init_buf_out,inode->size);
-   
-    printf("\tbuf_out %s\n", *buf_out);
-
-   *size = inode->size;
+   //printf("\tinit_buf_out %s\n", init_buf_out);
+   //memcpy(*buf_out,init_buf_out,inode->size);
+   //printf("\tbuf_out %s\n", *buf_out);
+   // *size = inode->size;
    free(inode);
    printf("finish read_file\n");
 
@@ -311,7 +322,7 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
   // printf("begin write_file\n");
    char blockbuf[BLOCK_SIZE];
 
-   if((size < 0 )|| size > (MAXFILE*BLOCK_SIZE)){printf("finish write_file--too big or too small \n");return;}//too big or too small
+   //if((size < 0 )|| size > (MAXFILE*BLOCK_SIZE)){printf("finish write_file--too big or too small \n");return;}//too big or too small
    
    inode_t *inode = get_inode(inum);//
    
@@ -322,7 +333,7 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
    blockid_t new_in_blocks[NINDIRECT];
 
    int old_block_num = (inode->size+BLOCK_SIZE-1)/BLOCK_SIZE;
-   int new_block_num = (size-1)/BLOCK_SIZE+1;
+   int new_block_num = (size+BLOCK_SIZE-1)/BLOCK_SIZE;
 
  //  printf("\tnew_block_num  %d\n", new_block_num);
   // memcpy(old_blocks,inode->blocks,NDIRECT*sizeof(blockid_t));
@@ -336,6 +347,7 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
       if(old_block_num<=NDIRECT){
         for(int i = 0;i<old_block_num;i++){//new<old<ndirect
           if(i < new_block_num){
+
             bm->write_block(inode->blocks[i],buf+BLOCK_SIZE*i);
           }
           else{
@@ -413,15 +425,13 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
             new_in_blocks[i-NDIRECT] = old_in_blocks[i-NDIRECT];
             bm->write_block(old_in_blocks[i-NDIRECT],buf+i*BLOCK_SIZE);
           }
-          else{// NDREICT<old_block_num<=i <new_block_num
+          else{// NDIRECT<old_block_num<=i <new_block_num
             blockid_t new_block_id = bm->alloc_block();
             new_in_blocks[i-NDIRECT] = new_block_id;
             bm->write_block(new_block_id,buf+i*BLOCK_SIZE);
           }
         }
       }  
-    
-     
   }
    if(new_block_num > NDIRECT){
       blockid_t in_blockId = bm->alloc_block();
@@ -433,11 +443,14 @@ inode_manager::write_file(uint32_t inum, const char *buf, int size)
    inode->size = size;
    put_inode(inum,inode);
    
-   char *buf2=NULL;
+   char *buf2 = NULL;
+   char buf3[BLOCK_SIZE];
    int size1 = 0;
-   read_file(inum, &buf2, &size);
-
-   printf("after write_file :%s\n",buf2);
+   read_file(inum, &buf2, &size1);
+   int block_number = inode->blocks[0];
+   bm->read_block(block_number,buf3);
+   printf("what your read after write_file :%s\n",buf2);
+   printf("what your write is after write_file :%s\n",buf3);
    printf("should write_file :%s\n",buf);
    
    return;
