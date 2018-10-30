@@ -34,6 +34,7 @@ class yfs_client {
  private:
   static std::string filename(inum);
   static inum n2i(std::string);
+  int writedir(inum, std::list<dirent> &);
 
  public:
   yfs_client();

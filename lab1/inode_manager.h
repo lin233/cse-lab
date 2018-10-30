@@ -67,6 +67,9 @@ class block_manager {
 #define NINDIRECT (BLOCK_SIZE / sizeof(uint32_t))
 #define MAXFILE (NDIRECT + NINDIRECT)
 
+
+#define CEIL_DIV(x, y) (((x) + (y) - 1) / (y))
+
 typedef struct inode {
   short type;
   int size;
@@ -81,6 +84,7 @@ class inode_manager {
   block_manager *bm;
   struct inode* get_inode(uint32_t inum);
   void put_inode(uint32_t inum, struct inode *ino);
+  void get_blockids(const inode_t *ino, blockid_t *bids, int cnt);
 
  public:
   inode_manager();

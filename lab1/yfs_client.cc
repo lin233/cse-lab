@@ -10,6 +10,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+
+
+
 yfs_client::yfs_client()
 {
     ec = new extent_client();
@@ -391,19 +394,20 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
      std::string content;
      
      r = ec->get(ino,content);
-     std::string buf = std::string(data);
-     int len_content = content.length();
-     
+     std::string buf(data,size);
+
+     int len_content = content.size();
 
      printf("old_filesize :%d\n",len_content);
      printf("off :%d\n",off);
      printf("size :%d\n",size);
      printf("old_file_content :%s\n",content.c_str());
-     printf("Add content :%s\n",data);
-     if(off >= len_content){
+     printf("Add content :%s\n",buf.c_str());
+
+     if(off > len_content){
          printf("append writing\n");
          content.resize(off,'\0');
-         content = content + buf.substr(0,size);
+         content = content + buf;
          printf("already_new_filesize :%d\n",content.length());
          printf("already to write content :%s\n",content.c_str());
          printf("bytes_written :%d\n",bytes_written);
@@ -411,15 +415,19 @@ yfs_client::write(inum ino, size_t size, off_t off, const char *data,
          bytes_written = off+size-len_content;
          
      }
-     
+     else if(off==len_content){
+         content+=buf;
+         r=ec->put(ino,content);
+         bytes_written = size;
+     }
      else if(off+size< len_content){
-         content = content.substr(0,off)+buf.substr(0,size)+content.substr(off+size);
+         content = content.substr(0,off)+buf+content.substr(off+size,len_content-off-size);
          r=ec->put(ino,content);
          bytes_written = size;
      }
 
      else{
-         content = content.substr(0,off)+buf.substr(0,size);
+         content = content.substr(0,off)+buf;
          printf("already to write content :%s\n",content.c_str());
          r=ec->put(ino,content);
          bytes_written = size;
